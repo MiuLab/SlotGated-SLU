@@ -26,13 +26,15 @@ parser.add_argument("--no_early_stop", action='store_false',dest='early_stop', h
 parser.add_argument("--patience", type=int, default=5, help="Patience to wait before stop.")
 
 #Model and Vocab
+parser.add_argument("--dataset", type=str, default=None, help="""Type 'atis' or 'snips' to use dataset provided by us or enter what ever you named your own dataset.
+                Note, if you don't want to use this part, enter --dataset=''. It can not be None""")
 parser.add_argument("--model_path", type=str, default='./model', help="Path to save model.")
 parser.add_argument("--vocab_path", type=str, default='./vocab', help="Path to vocabulary files.")
 
 #Data
-parser.add_argument("--train_data_path", type=str, default='./data/train', help="Path to training data files.")
-parser.add_argument("--test_data_path", type=str, default='./data/test', help="Path to testing data files.")
-parser.add_argument("--valid_data_path", type=str, default='./data/valid', help="Path to validation data files.")
+parser.add_argument("--train_data_path", type=str, default='train', help="Path to training data files.")
+parser.add_argument("--test_data_path", type=str, default='test', help="Path to testing data files.")
+parser.add_argument("--valid_data_path", type=str, default='valid', help="Path to validation data files.")
 parser.add_argument("--input_file", type=str, default='seq.in', help="Input file name.")
 parser.add_argument("--slot_file", type=str, default='seq.out', help="Slot file name.")
 parser.add_argument("--intent_file", type=str, default='label', help="Intent file name.")
@@ -42,6 +44,7 @@ arg=parser.parse_args()
 #Print arguments
 for k,v in sorted(vars(arg).items()):
     print(k,'=',v)
+print()
 
 if arg.model_type == 'full':
     add_final_state_to_intent = True
@@ -53,9 +56,23 @@ else:
     print('unknown model type!')
     exit(1)
 
-createVocabulary(os.path.join(arg.train_data_path, arg.input_file), os.path.join(arg.vocab_path, 'in_vocab'))
-createVocabulary(os.path.join(arg.train_data_path, arg.slot_file), os.path.join(arg.vocab_path, 'slot_vocab'))
-createVocabulary(os.path.join(arg.train_data_path, arg.intent_file), os.path.join(arg.vocab_path, 'intent_vocab'))
+#full path to data will be: ./data + dataset + train/test/valid
+if arg.dataset == None:
+    print('name of dataset can not be None')
+    exit(1)
+elif arg.dataset == 'snips':
+    print('use snips dataset')
+elif arg.dataset == 'atis':
+    print('use atis dataset')
+else:
+    print('use own dataset: ',arg.dataset)
+full_train_path = os.path.join('./data',arg.dataset,arg.train_data_path)
+full_test_path = os.path.join('./data',arg.dataset,arg.test_data_path)
+full_valid_path = os.path.join('./data',arg.dataset,arg.valid_data_path)
+
+createVocabulary(os.path.join(full_train_path, arg.input_file), os.path.join(arg.vocab_path, 'in_vocab'))
+createVocabulary(os.path.join(full_train_path, arg.slot_file), os.path.join(arg.vocab_path, 'slot_vocab'))
+createVocabulary(os.path.join(full_train_path, arg.intent_file), os.path.join(arg.vocab_path, 'intent_vocab'))
 
 in_vocab = loadVocabulary(os.path.join(arg.vocab_path, 'in_vocab'))
 slot_vocab = loadVocabulary(os.path.join(arg.vocab_path, 'slot_vocab'))
@@ -246,7 +263,7 @@ with tf.Session() as sess:
 
     while True:
         if data_processor == None:
-            data_processor = DataProcessor(os.path.join(arg.train_data_path, arg.input_file), os.path.join(arg.train_data_path, arg.slot_file), os.path.join(arg.train_data_path, arg.intent_file), in_vocab, slot_vocab, intent_vocab)
+            data_processor = DataProcessor(os.path.join(full_train_path, arg.input_file), os.path.join(full_train_path, arg.slot_file), os.path.join(full_train_path, arg.intent_file), in_vocab, slot_vocab, intent_vocab)
         in_data, slot_data, slot_weight, length, intents,_,_,_ = data_processor.get_batch(arg.batch_size)
         feed_dict = {input_data.name: in_data, slots.name: slot_data, slot_weights.name: slot_weight, sequence_length.name: length, intent.name: intents}
         ret = sess.run(training_outputs, feed_dict)
@@ -338,10 +355,10 @@ with tf.Session() as sess:
                 return f1,accuracy,semantic_error,pred_intents,correct_intents,slot_outputs,correct_slots,input_words,gate_seq
 
             logging.info('Valid:')
-            epoch_valid_slot, epoch_valid_intent, epoch_valid_err,valid_pred_intent,valid_correct_intent,valid_pred_slot,valid_correct_slot,valid_words,valid_gate = valid(os.path.join(arg.valid_data_path, arg.input_file), os.path.join(arg.valid_data_path, arg.slot_file), os.path.join(arg.valid_data_path, arg.intent_file))
+            epoch_valid_slot, epoch_valid_intent, epoch_valid_err,valid_pred_intent,valid_correct_intent,valid_pred_slot,valid_correct_slot,valid_words,valid_gate = valid(os.path.join(full_valid_path, arg.input_file), os.path.join(full_valid_path, arg.slot_file), os.path.join(full_valid_path, arg.intent_file))
 
             logging.info('Test:')
-            epoch_test_slot, epoch_test_intent, epoch_test_err,test_pred_intent,test_correct_intent,test_pred_slot,test_correct_slot,test_words,test_gate = valid(os.path.join(arg.test_data_path, arg.input_file), os.path.join(arg.test_data_path, arg.slot_file), os.path.join(arg.test_data_path, arg.intent_file))
+            epoch_test_slot, epoch_test_intent, epoch_test_err,test_pred_intent,test_correct_intent,test_pred_slot,test_correct_slot,test_words,test_gate = valid(os.path.join(full_test_path, arg.input_file), os.path.join(full_test_path, arg.slot_file), os.path.join(full_test_path, arg.intent_file))
 
             if epoch_valid_err <= valid_err:
                 no_improve += 1
