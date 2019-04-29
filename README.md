@@ -1,7 +1,7 @@
 # Slot-Gated Modeling for Joint Slot Filling and Intent Prediction
 
 ## Reference
-Main paper to be cited
+Main paper to be cited ([Goo et al., 2018](https://www.csie.ntu.edu.tw/~yvchen/doc/NAACL18_SlotGated.pdf))
 
 ```
 @inproceedings{goo2018slot,
