@@ -13,7 +13,7 @@ Main paper to be cited ([Goo et al., 2018](https://www.csie.ntu.edu.tw/~yvchen/d
 ```
 
 ## Want to Reproduce the experiment?
-Enter `--dataset=atis` or `--dataset=snips` to use ATIS or Snips dataset.
+Enter `--dataset=atis` or `--dataset=snips` to use ATIS or Snips ([Coucke et al., 2018](https://arxiv.org/abs/1805.10190)) dataset.
 
 ## Where to Put My Dataset?
 You need to put your dataset under ./data/ and use `--dataset=foldername`. 
