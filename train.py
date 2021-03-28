@@ -6,6 +6,7 @@ import tensorflow as tf
 import numpy as np
 from tensorflow.python.ops import rnn_cell_impl
 from tensorflow.contrib.rnn.python.ops.core_rnn_cell import _linear
+from tensorflow.python import debug as tfdbg
 from utils import createVocabulary
 from utils import loadVocabulary
 from utils import computeF1Score
@@ -92,7 +93,7 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
     inputs = tf.nn.embedding_lookup(embedding, input_data)
 
     state_outputs, final_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, inputs, sequence_length=sequence_length, dtype=tf.float32)
-    
+    sa = tf.shape(state_outputs)
     final_state = tf.concat([final_state[0][0], final_state[0][1], final_state[1][0], final_state[1][1]], 1)
     state_outputs = tf.concat([state_outputs[0], state_outputs[1]], 2)
     state_shape = state_outputs.get_shape()
@@ -170,7 +171,7 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
     with tf.variable_scope('slot_proj'):
         slot = _linear(slot_output, slot_size, True)
 
-    outputs = [slot, intent]
+    outputs = [slot, intent, sa]
     return outputs
 
 # Create Training Model
@@ -186,7 +187,8 @@ with tf.variable_scope('model'):
 
 slots_shape = tf.shape(slots)
 slots_reshape = tf.reshape(slots, [-1])
-
+# Debug print
+sa = training_outputs[2]
 slot_outputs = training_outputs[0]
 with tf.variable_scope('slot_loss'):
     crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=slots_reshape, logits=slot_outputs)
@@ -222,8 +224,8 @@ gradient_norm_slot = norm_slot
 gradient_norm_intent = norm_intent
 update_slot = opt.apply_gradients(zip(clipped_gradients_slot, slot_params))
 update_intent = opt.apply_gradients(zip(clipped_gradients_intent, intent_params), global_step=global_step)
-
-training_outputs = [global_step, slot_loss, update_intent, update_slot, gradient_norm_intent, gradient_norm_slot]
+# Debug output
+training_outputs = [global_step, slot_loss, update_intent, update_slot, gradient_norm_intent, gradient_norm_slot, sa]
 inputs = [input_data, sequence_length, slots, slot_weights, intent]
 
 # Create Inference Model
@@ -242,6 +244,7 @@ saver = tf.train.Saver()
 
 # Start Training
 with tf.Session() as sess:
+
     sess.run(tf.global_variables_initializer())
     logging.info('Training Start')
 
@@ -280,6 +283,7 @@ with tf.Session() as sess:
             epochs += 1
             logging.info('Step: ' + str(step))
             logging.info('Epochs: ' + str(epochs))
+            logging.info('Shape: '+ str(ret[6]))
             logging.info('Loss: ' + str(loss/num_loss))
             num_loss = 0
             loss = 0.0
