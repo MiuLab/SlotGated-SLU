@@ -94,10 +94,10 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
     # State_outputs: ontains forward and backwards sequence. Shape: 2 x batchsize x len x dim
     # Final_state: The final states of both forward and backwards LSTM. Shape: 2 x 2(cell and hidden) x batchsize x dim
     state_outputs, final_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, inputs, sequence_length=sequence_length, dtype=tf.float32)
-    sa = tf.state_outputs
+    
     # concatenate in the last dim, so final will become batch_size x dim(256)
     final_state = tf.concat([final_state[0][0], final_state[0][1], final_state[1][0], final_state[1][1]], 1)
-    state_outputs = tf.concat([state_outputs[0], state_outputs[1]], 2) # Shape batchsize x len x dim(128)
+    state_outputs = tf.concat([state_outputs[0], state_outputs[1]], 2) # Shape: batchsize x len x dim(128)
     state_shape = state_outputs.get_shape()
     
     with tf.variable_scope('attention'):
@@ -110,17 +110,19 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
                 hidden_conv = tf.expand_dims(state_outputs, 2) # Shape: batchsize x len x 1 x dim(128)
                 # hidden shape = [batch, sentence length, 1, hidden size]
                 k = tf.get_variable("AttnW", [1, 1, attn_size, attn_size]) # 1 x 1 x 128 x 128
+                # Convolutional: Attention weights
                 hidden_features = tf.nn.conv2d(hidden_conv, k, [1, 1, 1, 1], "SAME")
                 hidden_features = tf.reshape(hidden_features, origin_shape)
                 hidden_features = tf.expand_dims(hidden_features, 1)
-                v = tf.get_variable("AttnV", [attn_size])
+                # Derive the hidden states weighted from attention
+                v = tf.get_variable("AttnV", [attn_size])# 128
 
                 slot_inputs_shape = tf.shape(slot_inputs)
-                slot_inputs = tf.reshape(slot_inputs, [-1, attn_size])
-                y = _linear(slot_inputs, attn_size, True)
+                slot_inputs = tf.reshape(slot_inputs, [-1, attn_size])# Shape: (batchsize x len) x dim(128)
+                y = _linear(slot_inputs, attn_size, True)# The y here is the origin hidden states.
                 y = tf.reshape(y, slot_inputs_shape)
                 y = tf.expand_dims(y, 2)
-                s = tf.reduce_sum(v * tf.tanh(hidden_features + y), [3])
+                s = tf.reduce_sum(v * tf.tanh(hidden_features + y), [3])# Sum the origin hidden states and weighted hidden states up
                 a = tf.nn.softmax(s)
                 # a shape = [batch, input size, sentence length, 1]
                 a = tf.expand_dims(a, -1)
