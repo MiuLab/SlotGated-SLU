@@ -12,7 +12,7 @@ from utils import computeF1Score
 from utils import DataProcessor
 
 parser = argparse.ArgumentParser(allow_abbrev=False)
-
+##
 #Network
 parser.add_argument("--num_units", type=int, default=64, help="Network size.", dest='layer_size')
 parser.add_argument("--model_type", type=str, default='full', help="""full(default) | intent_only
