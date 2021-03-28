@@ -91,9 +91,10 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
 
     embedding = tf.get_variable('embedding', [input_size, layer_size])
     inputs = tf.nn.embedding_lookup(embedding, input_data)
-
+    # State_outputs: ontains forward and backwards sequence. Shape: 2 x batchsize x len x dim
+    # Final_state: The final states of both forward and backwards LSTM. Shape: 2 x batchsize x dim
     state_outputs, final_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, inputs, sequence_length=sequence_length, dtype=tf.float32)
-    sa = tf.shape(state_outputs)
+    sa = final_state
     final_state = tf.concat([final_state[0][0], final_state[0][1], final_state[1][0], final_state[1][1]], 1)
     state_outputs = tf.concat([state_outputs[0], state_outputs[1]], 2)
     state_shape = state_outputs.get_shape()
