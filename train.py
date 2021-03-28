@@ -5,7 +5,7 @@ import sys
 import tensorflow as tf
 import numpy as np
 from tensorflow.python.ops import rnn_cell_impl
-
+from tensorflow.contrib.rnn.python.ops.core_rnn_cell import _linear
 from utils import createVocabulary
 from utils import loadVocabulary
 from utils import computeF1Score
@@ -114,7 +114,7 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
 
                 slot_inputs_shape = tf.shape(slot_inputs)
                 slot_inputs = tf.reshape(slot_inputs, [-1, attn_size])
-                y = rnn_cell_impl._linear(slot_inputs, attn_size, True)
+                y = _linear(slot_inputs, attn_size, True)
                 y = tf.reshape(y, slot_inputs_shape)
                 y = tf.expand_dims(y, 2)
                 s = tf.reduce_sum(v * tf.tanh(hidden_features + y), [3])
@@ -134,7 +134,7 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
             hidden_features = tf.nn.conv2d(hidden, k, [1, 1, 1, 1], "SAME")
             v = tf.get_variable("AttnV", [attn_size])
 
-            y = rnn_cell_impl._linear(intent_input, attn_size, True)
+            y = _linear(intent_input, attn_size, True)
             y = tf.reshape(y, [-1, 1, 1, attn_size])
             s = tf.reduce_sum(v*tf.tanh(hidden_features + y), [2,3])
             a = tf.nn.softmax(s)
@@ -148,7 +148,7 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
                 intent_output = d
 
         with tf.variable_scope('slot_gated'):
-            intent_gate = rnn_cell_impl._linear(intent_output, attn_size, True)
+            intent_gate = _linear(intent_output, attn_size, True)
             intent_gate = tf.reshape(intent_gate, [-1, 1, intent_gate.get_shape()[1].value])
             v1 = tf.get_variable("gateV", [attn_size])
             if remove_slot_attn == False:
@@ -165,10 +165,10 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
             slot_output = tf.concat([slot_gate, slot_inputs], 1)
 
     with tf.variable_scope('intent_proj'):
-        intent = rnn_cell_impl._linear(intent_output, intent_size, True)
+        intent = _linear(intent_output, intent_size, True)
 
     with tf.variable_scope('slot_proj'):
-        slot = rnn_cell_impl._linear(slot_output, slot_size, True)
+        slot = _linear(slot_output, slot_size, True)
 
     outputs = [slot, intent]
     return outputs
