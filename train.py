@@ -94,7 +94,7 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
     # State_outputs: ontains forward and backwards sequence. Shape: 2 x batchsize x len x dim
     # Final_state: The final states of both forward and backwards LSTM. Shape: 2 x 2(cell and hidden) x batchsize x dim
     state_outputs, final_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, inputs, sequence_length=sequence_length, dtype=tf.float32)
-    sa = final_state
+    sa = tf.state_outputs
     # concatenate in the last dim, so final will become batch_size x dim(256)
     final_state = tf.concat([final_state[0][0], final_state[0][1], final_state[1][0], final_state[1][1]], 1)
     state_outputs = tf.concat([state_outputs[0], state_outputs[1]], 2) # Shape batchsize x len x dim(128)
@@ -104,12 +104,12 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
         slot_inputs = state_outputs
         if remove_slot_attn == False:
             with tf.variable_scope('slot_attn'):
-                attn_size = state_shape[2].value
+                attn_size = state_shape[2].value # dim(128)
                 origin_shape = tf.shape(state_outputs)
-                hidden = tf.expand_dims(state_outputs, 1)
-                hidden_conv = tf.expand_dims(state_outputs, 2)
+                hidden = tf.expand_dims(state_outputs, 1) # Shape: batchsize x 1 x len x dim(128)
+                hidden_conv = tf.expand_dims(state_outputs, 2) # Shape: batchsize x len x 1 x dim(128)
                 # hidden shape = [batch, sentence length, 1, hidden size]
-                k = tf.get_variable("AttnW", [1, 1, attn_size, attn_size])
+                k = tf.get_variable("AttnW", [1, 1, attn_size, attn_size]) # 1 x 1 x 128 x 128
                 hidden_features = tf.nn.conv2d(hidden_conv, k, [1, 1, 1, 1], "SAME")
                 hidden_features = tf.reshape(hidden_features, origin_shape)
                 hidden_features = tf.expand_dims(hidden_features, 1)
