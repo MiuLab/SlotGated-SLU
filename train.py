@@ -114,7 +114,7 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
                 hidden_features = tf.nn.conv2d(hidden_conv, k, [1, 1, 1, 1], "SAME")
                 hidden_features = tf.reshape(hidden_features, origin_shape)
                 hidden_features = tf.expand_dims(hidden_features, 1)
-                # Derive the hidden states weighted from attention
+                # Derive the hidden states weighted from attention (Content vector)
                 v = tf.get_variable("AttnV", [attn_size])# 128
 
                 slot_inputs_shape = tf.shape(slot_inputs)
@@ -131,11 +131,12 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
             attn_size = state_shape[2].value
             slot_inputs = tf.reshape(slot_inputs, [-1, attn_size])
 
-        intent_input = final_state
+        intent_input = final_state # Shape: 2 x 2(cell and hidden) x batchsize x dim
         with tf.variable_scope('intent_attn'):
-            attn_size = state_shape[2].value
-            hidden = tf.expand_dims(state_outputs, 2)
-            k = tf.get_variable("AttnW", [1, 1, attn_size, attn_size])
+            attn_size = state_shape[2].value # dim(128)
+            hidden = tf.expand_dims(state_outputs, 2) # Shape: batchsize x len x 1 x dim(128)
+            k = tf.get_variable("AttnW", [1, 1, attn_size, attn_size]) # 1 x 1 128 x 128
+            # Attention weighted
             hidden_features = tf.nn.conv2d(hidden, k, [1, 1, 1, 1], "SAME")
             v = tf.get_variable("AttnV", [attn_size])
 
@@ -153,7 +154,7 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
                 intent_output = d
 
         with tf.variable_scope('slot_gated'):
-            intent_gate = _linear(intent_output, attn_size, True)
+            intent_gate = _linear(intent_output, attn_size, True) 
             intent_gate = tf.reshape(intent_gate, [-1, 1, intent_gate.get_shape()[1].value])
             v1 = tf.get_variable("gateV", [attn_size])
             if remove_slot_attn == False:
