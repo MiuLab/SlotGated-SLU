@@ -153,7 +153,9 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
 
             if add_final_state_to_intent == True:
                 intent_output = tf.concat([d, intent_input], 1) #[12 384]
-                
+                if interplay == True:
+                    slot_t = tf.reshape(slot_d, [12, -1])
+                    intent_output = tf.concat([d, slot_t], 1)
             else:
                 intent_output = d
 
