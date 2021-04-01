@@ -79,7 +79,7 @@ in_vocab = loadVocabulary(os.path.join(arg.vocab_path, 'in_vocab'))
 slot_vocab = loadVocabulary(os.path.join(arg.vocab_path, 'slot_vocab'))
 intent_vocab = loadVocabulary(os.path.join(arg.vocab_path, 'intent_vocab'))
 
-def createModel(input_data, input_size, sequence_length, slot_size, intent_size, layer_size = 128, isTraining = True):
+def createModel(input_data, input_size, sequence_length, slot_size, intent_size, layer_size = 128, interplay = False, isTraining = True):
     cell_fw = tf.contrib.rnn.BasicLSTMCell(layer_size)
     cell_bw = tf.contrib.rnn.BasicLSTMCell(layer_size)
 
@@ -153,7 +153,7 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
 
             if add_final_state_to_intent == True:
                 intent_output = tf.concat([d, intent_input], 1) #[12 384]
-                sa = tf.shape(intent_output)
+                
             else:
                 intent_output = d
 
@@ -165,20 +165,23 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
                 slot_gate = v1 * tf.tanh(slot_d + intent_gate)
             else:
                 slot_gate = v1 * tf.tanh(state_outputs + intent_gate)
-            slot_gate = tf.reduce_sum(slot_gate, [2])
+            # Slot_gete Before sum: [ 12  23 128]
+            slot_gate = tf.reduce_sum(slot_gate, [2]) # Slot_gate after sum: [12 23]
             slot_gate = tf.expand_dims(slot_gate, -1)
+            
             if remove_slot_attn == False:
-                slot_gate = slot_d * slot_gate
+                slot_gate = slot_d * slot_gate # slot_d : [12 23 128]
             else:
                 slot_gate = state_outputs * slot_gate
-            slot_gate = tf.reshape(slot_gate, [-1, attn_size])
-            slot_output = tf.concat([slot_gate, slot_inputs], 1)
-
+            slot_gate = tf.reshape(slot_gate, [-1, attn_size]) # [276 128]
+            slot_output = tf.concat([slot_gate, slot_inputs], 1) #[276 256] 
+            
     with tf.variable_scope('intent_proj'):
-        intent = _linear(intent_output, intent_size, True)
+        intent = _linear(intent_output, intent_size, True) # intent shape: [12 9]
         
     with tf.variable_scope('slot_proj'):
-        slot = _linear(slot_output, slot_size, True) # slot_output: [ 12 384]
+        # Slot :[276 74]
+        slot = _linear(slot_output, slot_size, True) # slot_output: [276 256] 
         
 
     outputs = [slot, intent, sa]
