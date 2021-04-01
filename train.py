@@ -91,21 +91,21 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
 
     embedding = tf.get_variable('embedding', [input_size, layer_size])
     inputs = tf.nn.embedding_lookup(embedding, input_data)
-    # State_outputs: ontains forward and backwards sequence. Shape: 2 x batchsize x len x dim
-    # Final_state: The final states of both forward and backwards LSTM. Shape: 2 x 2(cell and hidden) x batchsize x dim
+    # State_outputs: ontains forward and backwards sequence. Shape: 2 x batchsize x len x dim [2 12 23 64]
+    # Final_state: The final states of both forward and backwards LSTM. Shape: 2 x 2(cell and hidden) x batchsize x dim [2 2 12 64]
     state_outputs, final_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, inputs, sequence_length=sequence_length, dtype=tf.float32)
     
-    # concatenate in the last dim, so final will become batch_size x dim(256)
+    # concatenate in the last dim, so final will become batch_size x dim(256) [12 256]
     final_state = tf.concat([final_state[0][0], final_state[0][1], final_state[1][0], final_state[1][1]], 1)
-    state_outputs = tf.concat([state_outputs[0], state_outputs[1]], 2) # Shape: batchsize x len x dim(128)
+    state_outputs = tf.concat([state_outputs[0], state_outputs[1]], 2) # Shape: batchsize x len x dim(128) [12 23 128]
     state_shape = state_outputs.get_shape()
     
     with tf.variable_scope('attention'):
-        slot_inputs = state_outputs
+        slot_inputs = state_outputs #[12 23 128]
         if remove_slot_attn == False:
             with tf.variable_scope('slot_attn'):
-                attn_size = state_shape[2].value # dim(128)
-                origin_shape = tf.shape(state_outputs)
+                attn_size = state_shape[2].value #128
+                origin_shape = tf.shape(state_outputs) #[12 23 128]
                 hidden = tf.expand_dims(state_outputs, 1) # Shape: batchsize x 1 x len x dim(128)
                 hidden_conv = tf.expand_dims(state_outputs, 2) # Shape: batchsize x len x 1 x dim(128)
                 # hidden shape = [batch, sentence length, 1, hidden size]
@@ -118,7 +118,8 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
                 v = tf.get_variable("AttnV", [attn_size])# 128
 
                 slot_inputs_shape = tf.shape(slot_inputs)
-                slot_inputs = tf.reshape(slot_inputs, [-1, attn_size])# Shape: (batchsize x len) x dim(128)
+                slot_inputs = tf.reshape(slot_inputs, [-1, attn_size])# Shape: (batchsize x len) x dim(128) [276 128]
+                
                 y = _linear(slot_inputs, attn_size, True)# The y here is the origin hidden states.
                 y = tf.reshape(y, slot_inputs_shape)
                 y = tf.expand_dims(y, 2)
@@ -126,7 +127,9 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
                 a = tf.nn.softmax(s)
                 # a shape = [batch, input size, sentence length, 1]
                 a = tf.expand_dims(a, -1)
-                slot_d = tf.reduce_sum(a * hidden, [2])
+                slot_d = tf.reduce_sum(a * hidden, [2]) #[12 23 128]
+                
+                
         else:
             attn_size = state_shape[2].value
             slot_inputs = tf.reshape(slot_inputs, [-1, attn_size])
@@ -149,7 +152,8 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
             d = tf.reduce_sum(a * hidden, [1, 2])
 
             if add_final_state_to_intent == True:
-                intent_output = tf.concat([d, intent_input], 1)
+                intent_output = tf.concat([d, intent_input], 1) #[12 384]
+                sa = tf.shape(intent_output)
             else:
                 intent_output = d
 
@@ -172,9 +176,10 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
 
     with tf.variable_scope('intent_proj'):
         intent = _linear(intent_output, intent_size, True)
-
+        
     with tf.variable_scope('slot_proj'):
-        slot = _linear(slot_output, slot_size, True)
+        slot = _linear(slot_output, slot_size, True) # slot_output: [ 12 384]
+        
 
     outputs = [slot, intent, sa]
     return outputs
