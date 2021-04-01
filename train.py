@@ -40,6 +40,10 @@ parser.add_argument("--input_file", type=str, default='seq.in', help="Input file
 parser.add_argument("--slot_file", type=str, default='seq.out', help="Slot file name.")
 parser.add_argument("--intent_file", type=str, default='label', help="Intent file name.")
 
+parser.add_argument("--interplay", action='store_true')
+parser.add_argument("--remove_intent_attn", action='store_true')
+parser.add_argument("--remove_gate", action='store_true')
+
 arg=parser.parse_args()
 
 #Print arguments
@@ -79,7 +83,7 @@ in_vocab = loadVocabulary(os.path.join(arg.vocab_path, 'in_vocab'))
 slot_vocab = loadVocabulary(os.path.join(arg.vocab_path, 'slot_vocab'))
 intent_vocab = loadVocabulary(os.path.join(arg.vocab_path, 'intent_vocab'))
 
-def createModel(input_data, input_size, sequence_length, slot_size, intent_size, layer_size = 128, interplay = False, isTraining = True):
+def createModel(input_data, input_size, sequence_length, slot_size, intent_size, layer_size = 128, interplay = False, remove_intent_attn = False, remove_gate = False, isTraining = True):
     cell_fw = tf.contrib.rnn.BasicLSTMCell(layer_size)
     cell_bw = tf.contrib.rnn.BasicLSTMCell(layer_size)
 
@@ -134,9 +138,9 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
             attn_size = state_shape[2].value
             slot_inputs = tf.reshape(slot_inputs, [-1, attn_size])
 
-        intent_input = final_state # Shape: 2 x 2(cell and hidden) x batchsize x dim
+        intent_input = final_state # [12 256]]
         with tf.variable_scope('intent_attn'):
-            attn_size = state_shape[2].value # dim(128)
+            attn_size = state_shape[2].value # dim(128) state_outputs : [12 23 128]
             hidden = tf.expand_dims(state_outputs, 2) # Shape: batchsize x len x 1 x dim(128)
             k = tf.get_variable("AttnW", [1, 1, attn_size, attn_size]) # 1 x 1 128 x 128
             # Attention weighted
@@ -152,14 +156,22 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
             d = tf.reduce_sum(a * hidden, [1, 2])
 
             if add_final_state_to_intent == True:
-                intent_output = tf.concat([d, intent_input], 1) #[12 384]
+                if remove_intent_attn == True:
+                    
+                    intent_output = tf.tf.concat([tf.reshape(state_outputs, [state_outputs.get_shape()[0].value, -1]), intent_input], 1)
+                else:
+                    intent_output = tf.concat([d, intent_input], 1) #[12 384]
                 if interplay == True:
-                    slot_t = tf.reshape(slot_d, [12, -1])
+                    temp = slot_d.get_shape()
+                    slot_t = tf.reshape(slot_d, [temp[0].value, -1])
                     intent_output = tf.concat([d, slot_t], 1)
             else:
                 intent_output = d
 
         with tf.variable_scope('slot_gated'):
+            slot_without_gate = tf.reshape( slot_d, [-1, attn_size])
+            slot_without_gate = tf.concat([slot_without_gate, slot_inputs], 1)
+
             intent_gate = _linear(intent_output, attn_size, True) 
             intent_gate = tf.reshape(intent_gate, [-1, 1, intent_gate.get_shape()[1].value])
             v1 = tf.get_variable("gateV", [attn_size])
@@ -183,10 +195,13 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
         
     with tf.variable_scope('slot_proj'):
         # Slot :[276 74]
-        slot = _linear(slot_output, slot_size, True) # slot_output: [276 256] 
+        if remove_gate == True:
+            slot = _linear(slot_without_gate, slot_size, True)
+        else:
+            slot = _linear(slot_output, slot_size, True) # slot_output: [276 256] 
         
 
-    outputs = [slot, intent, sa]
+    outputs = [slot, intent]
     return outputs
 
 # Create Training Model
@@ -198,7 +213,7 @@ slot_weights = tf.placeholder(tf.float32, [None, None], name='slot_weights')
 intent = tf.placeholder(tf.int32, [None], name='intent')
 
 with tf.variable_scope('model'):
-    training_outputs = createModel(input_data, len(in_vocab['vocab']), sequence_length, len(slot_vocab['vocab']), len(intent_vocab['vocab']), layer_size=arg.layer_size)
+    training_outputs = createModel(input_data, len(in_vocab['vocab']), sequence_length, len(slot_vocab['vocab']), len(intent_vocab['vocab']), layer_size=arg.layer_size, interplay = arg.interplay, remove_intent_attn = arg.remove_intent_attn, remove_gate = arg.remove_gate)
 
 slots_shape = tf.shape(slots)
 slots_reshape = tf.reshape(slots, [-1])
@@ -240,12 +255,12 @@ gradient_norm_intent = norm_intent
 update_slot = opt.apply_gradients(zip(clipped_gradients_slot, slot_params))
 update_intent = opt.apply_gradients(zip(clipped_gradients_intent, intent_params), global_step=global_step)
 # Debug output
-training_outputs = [global_step, slot_loss, update_intent, update_slot, gradient_norm_intent, gradient_norm_slot, sa]
+training_outputs = [global_step, slot_loss, update_intent, update_slot, gradient_norm_intent, gradient_norm_slot]
 inputs = [input_data, sequence_length, slots, slot_weights, intent]
 
 # Create Inference Model
 with tf.variable_scope('model', reuse=True):
-    inference_outputs = createModel(input_data, len(in_vocab['vocab']), sequence_length, len(slot_vocab['vocab']), len(intent_vocab['vocab']), layer_size=arg.layer_size, isTraining=False)
+    inference_outputs = createModel(input_data, len(in_vocab['vocab']), sequence_length, len(slot_vocab['vocab']), len(intent_vocab['vocab']), layer_size=arg.layer_size, interplay = arg.interplay, remove_intent_attn = arg.remove_intent_attn, remove_gate = arg.remove_gate, isTraining=False)
 
 inference_slot_output = tf.nn.softmax(inference_outputs[0], name='slot_output')
 inference_intent_output = tf.nn.softmax(inference_outputs[1], name='intent_output')
@@ -298,7 +313,7 @@ with tf.Session() as sess:
             epochs += 1
             logging.info('Step: ' + str(step))
             logging.info('Epochs: ' + str(epochs))
-            logging.info('Shape: '+ str(ret[6]))
+            # logging.info('Shape: '+ str(ret[6]))
             logging.info('Loss: ' + str(loss/num_loss))
             num_loss = 0
             loss = 0.0
