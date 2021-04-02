@@ -104,7 +104,10 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
     state_outputs = tf.concat([state_outputs[0], state_outputs[1]], 2) # Shape: batchsize x len x dim(128) [12 23 128]
     state_shape = state_outputs.get_shape()
     
+    
     with tf.variable_scope('attention'):
+        bs = state_shape[0].value
+        sa = tf.shape(state_outputs)
         slot_inputs = state_outputs #[12 23 128]
         if remove_slot_attn == False:
             with tf.variable_scope('slot_attn'):
@@ -154,17 +157,17 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
             a = tf.expand_dims(a, -1)
             a = tf.expand_dims(a, -1)
             d = tf.reduce_sum(a * hidden, [1, 2])
-
+            
             if add_final_state_to_intent == True:
                 if remove_intent_attn == True:
                     
-                    intent_output = tf.tf.concat([tf.reshape(state_outputs, [state_outputs.get_shape()[0].value, -1]), intent_input], 1)
+                    intent_output = tf.tf.concat([tf.reshape(state_outputs, [bs, -1]), intent_input], 1)
+                elif interplay == True:
+                    slot_t = tf.reshape(slot_d, [tf.shape(slot_d).eval()[0], -1])
+                    intent_output = tf.concat([d, slot_t], 1)                
                 else:
                     intent_output = tf.concat([d, intent_input], 1) #[12 384]
-                if interplay == True:
-                    temp = slot_d.get_shape()
-                    slot_t = tf.reshape(slot_d, [temp[0].value, -1])
-                    intent_output = tf.concat([d, slot_t], 1)
+
             else:
                 intent_output = d
 
@@ -201,7 +204,7 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
             slot = _linear(slot_output, slot_size, True) # slot_output: [276 256] 
         
 
-    outputs = [slot, intent]
+    outputs = [slot, intent, sa]
     return outputs
 
 # Create Training Model
@@ -255,7 +258,7 @@ gradient_norm_intent = norm_intent
 update_slot = opt.apply_gradients(zip(clipped_gradients_slot, slot_params))
 update_intent = opt.apply_gradients(zip(clipped_gradients_intent, intent_params), global_step=global_step)
 # Debug output
-training_outputs = [global_step, slot_loss, update_intent, update_slot, gradient_norm_intent, gradient_norm_slot]
+training_outputs = [global_step, slot_loss, update_intent, update_slot, gradient_norm_intent, gradient_norm_slot, sa]
 inputs = [input_data, sequence_length, slots, slot_weights, intent]
 
 # Create Inference Model
@@ -313,7 +316,7 @@ with tf.Session() as sess:
             epochs += 1
             logging.info('Step: ' + str(step))
             logging.info('Epochs: ' + str(epochs))
-            # logging.info('Shape: '+ str(ret[6]))
+            logging.info('Shape: '+ str(ret[6]))
             logging.info('Loss: ' + str(loss/num_loss))
             num_loss = 0
             loss = 0.0
