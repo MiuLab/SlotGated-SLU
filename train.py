@@ -143,6 +143,7 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
 
         intent_input = final_state # [12 256]]
         with tf.variable_scope('intent_attn'):
+            sa = tf.shape(final_state)
             if remove_intent_attn == True:
                 intent_output = tf.concat([tf.reduce_sum(state_outputs, 1), intent_input], 1)
             else:           
