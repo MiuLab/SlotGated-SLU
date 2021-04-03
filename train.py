@@ -107,7 +107,7 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
     
     with tf.variable_scope('attention'):
         bs = state_shape[0].value
-        sa = tf.shape(state_outputs)
+        
         slot_inputs = state_outputs #[12 23 128]
         if remove_slot_attn == False:
             with tf.variable_scope('slot_attn'):
@@ -156,15 +156,19 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
             a = tf.nn.softmax(s)
             a = tf.expand_dims(a, -1)
             a = tf.expand_dims(a, -1)
-            d = tf.reduce_sum(a * hidden, [1, 2])
             
+            d = tf.reduce_sum(a * hidden, [1, 2]) # a * hidden shape:[ 12  23   1 128]
+            sa = tf.shape(d)
             if add_final_state_to_intent == True:
                 if remove_intent_attn == True:
                     
-                    intent_output = tf.tf.concat([tf.reshape(state_outputs, [bs, -1]), intent_input], 1)
+                    intent_output = tf.concat([tf.reshape(state_outputs, [bs, -1]), intent_input], 1)
                 elif interplay == True:
-                    slot_t = tf.reshape(slot_d, [tf.shape(slot_d).eval()[0], -1])
-                    intent_output = tf.concat([d, slot_t], 1)                
+                    slot_t = tf.reduce_sum(slot_d, 2)
+                    # slot_t = tf.layers.Flatten()(slot_d)
+                    #slot_t = tf.reshape(slot_d, [d.get_shape()[0].value, -1])
+                    intent_output = tf.concat([d, intent_input], 1)  
+                    intent_output = tf.concat([intent_input, slot_t], 1)             
                 else:
                     intent_output = tf.concat([d, intent_input], 1) #[12 384]
 
