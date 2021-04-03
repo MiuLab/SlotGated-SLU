@@ -29,7 +29,7 @@ parser.add_argument("--patience", type=int, default=5, help="Patience to wait be
 #Model and Vocab
 parser.add_argument("--dataset", type=str, default=None, help="""Type 'atis' or 'snips' to use dataset provided by us or enter what ever you named your own dataset.
                 Note, if you don't want to use this part, enter --dataset=''. It can not be None""")
-parser.add_argument("--model_path", type=str, default='./model', help="Path to save model.")
+parser.add_argument("--model_path", type=str, default='/content/drive/MyDrive/Data/SlotGate/interplay/snips', help="Path to save model.")
 parser.add_argument("--vocab_path", type=str, default='./vocab', help="Path to vocabulary files.")
 
 #Data
@@ -39,6 +39,8 @@ parser.add_argument("--valid_data_path", type=str, default='valid', help="Path t
 parser.add_argument("--input_file", type=str, default='seq.in', help="Input file name.")
 parser.add_argument("--slot_file", type=str, default='seq.out', help="Slot file name.")
 parser.add_argument("--intent_file", type=str, default='label', help="Intent file name.")
+parser.add_argument("--ckpt", default='/content/drive/MyDrive/Data/SlotGate/interplay/snips', help='The path to the model file')
+
 
 parser.add_argument("--interplay", action='store_true')
 parser.add_argument("--remove_intent_attn", action='store_true')
