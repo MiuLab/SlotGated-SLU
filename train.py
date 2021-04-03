@@ -143,37 +143,38 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
 
         intent_input = final_state # [12 256]]
         with tf.variable_scope('intent_attn'):
-            attn_size = state_shape[2].value # dim(128) state_outputs : [12 23 128]
-            hidden = tf.expand_dims(state_outputs, 2) # Shape: batchsize x len x 1 x dim(128)
-            k = tf.get_variable("AttnW", [1, 1, attn_size, attn_size]) # 1 x 1 128 x 128
-            # Attention weighted
-            hidden_features = tf.nn.conv2d(hidden, k, [1, 1, 1, 1], "SAME")
-            v = tf.get_variable("AttnV", [attn_size])
+            if remove_intent_attn == True:
+                intent_output = tf.concat([tf.reduce_sum(state_outputs, 1), intent_input], 1)
+            else:           
+                attn_size = state_shape[2].value # dim(128) state_outputs : [12 23 128]
+                hidden = tf.expand_dims(state_outputs, 2) # Shape: batchsize x len x 1 x dim(128)
+                k = tf.get_variable("AttnW", [1, 1, attn_size, attn_size]) # 1 x 1 128 x 128
+                # Attention weighted
+                hidden_features = tf.nn.conv2d(hidden, k, [1, 1, 1, 1], "SAME")
+                v = tf.get_variable("AttnV", [attn_size])
 
-            y = _linear(intent_input, attn_size, True)
-            y = tf.reshape(y, [-1, 1, 1, attn_size])
-            s = tf.reduce_sum(v*tf.tanh(hidden_features + y), [2,3])
-            a = tf.nn.softmax(s)
-            a = tf.expand_dims(a, -1)
-            a = tf.expand_dims(a, -1)
-            
-            d = tf.reduce_sum(a * hidden, [1, 2]) # a * hidden shape:[ 12  23   1 128]
-            sa = tf.shape(d)
-            if add_final_state_to_intent == True:
-                if remove_intent_attn == True:
-                    
-                    intent_output = tf.concat([tf.reshape(state_outputs, [bs, -1]), intent_input], 1)
-                elif interplay == True:
-                    slot_t = tf.reduce_sum(slot_d, 2)
-                    # slot_t = tf.layers.Flatten()(slot_d)
-                    #slot_t = tf.reshape(slot_d, [d.get_shape()[0].value, -1])
-                    intent_output = tf.concat([d, intent_input], 1)  
-                    intent_output = tf.concat([intent_input, slot_t], 1)             
+                y = _linear(intent_input, attn_size, True)
+                y = tf.reshape(y, [-1, 1, 1, attn_size])
+                s = tf.reduce_sum(v*tf.tanh(hidden_features + y), [2,3])
+                a = tf.nn.softmax(s)
+                a = tf.expand_dims(a, -1)
+                a = tf.expand_dims(a, -1)
+                
+                d = tf.reduce_sum(a * hidden, [1, 2]) # a * hidden shape:[ 12  23   1 128]
+                # d: Shape [12 128]
+                sa = tf.shape(d)
+                if add_final_state_to_intent == True:
+                    if interplay == True:
+                        slot_t = tf.reduce_sum(slot_d, 1)
+                        # slot_t = tf.reduce_sum(slot_d, 2)
+                        # slot_t = tf.layers.Flatten()(slot_d)
+                        #slot_t = tf.reshape(slot_d, [d.get_shape()[0].value, -1])
+                        intent_output = tf.concat([slot_t, d, intent_input], 1)           
+                    else:
+                        intent_output = tf.concat([d, intent_input], 1) #[12 384]
+
                 else:
-                    intent_output = tf.concat([d, intent_input], 1) #[12 384]
-
-            else:
-                intent_output = d
+                    intent_output = d
 
         with tf.variable_scope('slot_gated'):
             slot_without_gate = tf.reshape( slot_d, [-1, attn_size])
