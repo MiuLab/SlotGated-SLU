@@ -180,8 +180,9 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
                     intent_output = d
 
         with tf.variable_scope('slot_gated'):
-            slot_without_gate = tf.reshape( slot_d, [-1, attn_size])
-            slot_without_gate = tf.concat([slot_without_gate, slot_inputs], 1)
+            if remove_gate == True:
+                slot_without_gate = tf.reshape( slot_d, [-1, attn_size])
+                slot_without_gate = tf.concat([slot_without_gate, slot_inputs], 1)
 
             intent_gate = _linear(intent_output, attn_size, True) 
             intent_gate = tf.reshape(intent_gate, [-1, 1, intent_gate.get_shape()[1].value])
