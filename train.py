@@ -42,9 +42,9 @@ parser.add_argument("--intent_file", type=str, default='label', help="Intent fil
 parser.add_argument("--ckpt", default='/content/drive/MyDrive/Data/SlotGate/interplay/snips', help='The path to the model file')
 
 
-parser.add_argument("--interplay", action='store_true')
-parser.add_argument("--remove_intent_attn", action='store_true')
-parser.add_argument("--remove_gate", action='store_true')
+parser.add_argument("--interplay", action='store_true', help='Use the interplay between slot filling and intent detection or not.')
+parser.add_argument("--remove_intent_attn", action='store_true', help='Remove the intent attention.')
+parser.add_argument("--remove_gate", action='store_true', help='Remove the gate.')
 
 arg=parser.parse_args()
 
@@ -145,7 +145,7 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
 
         intent_input = final_state # [12 256]]
         with tf.variable_scope('intent_attn'):
-            sa = tf.shape(final_state)
+
             if remove_intent_attn == True:
                 intent_output = tf.concat([tf.reduce_sum(state_outputs, 1), intent_input], 1)
             else:           
@@ -213,7 +213,7 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
             slot = _linear(slot_output, slot_size, True) # slot_output: [276 256] 
         
 
-    outputs = [slot, intent, sa]
+    outputs = [slot, intent]
     return outputs
 
 # Create Training Model
@@ -230,7 +230,7 @@ with tf.variable_scope('model'):
 slots_shape = tf.shape(slots)
 slots_reshape = tf.reshape(slots, [-1])
 # Debug print
-sa = training_outputs[2]
+#sa = training_outputs[2]
 slot_outputs = training_outputs[0]
 with tf.variable_scope('slot_loss'):
     crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=slots_reshape, logits=slot_outputs)
@@ -267,7 +267,7 @@ gradient_norm_intent = norm_intent
 update_slot = opt.apply_gradients(zip(clipped_gradients_slot, slot_params))
 update_intent = opt.apply_gradients(zip(clipped_gradients_intent, intent_params), global_step=global_step)
 # Debug output
-training_outputs = [global_step, slot_loss, update_intent, update_slot, gradient_norm_intent, gradient_norm_slot, sa]
+training_outputs = [global_step, slot_loss, update_intent, update_slot, gradient_norm_intent, gradient_norm_slot]
 inputs = [input_data, sequence_length, slots, slot_weights, intent]
 
 # Create Inference Model
@@ -325,7 +325,7 @@ with tf.Session() as sess:
             epochs += 1
             logging.info('Step: ' + str(step))
             logging.info('Epochs: ' + str(epochs))
-            logging.info('Shape: '+ str(ret[6]))
+            # logging.info('Shape: '+ str(ret[6]))
             logging.info('Loss: ' + str(loss/num_loss))
             num_loss = 0
             loss = 0.0
