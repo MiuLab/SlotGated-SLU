@@ -5,14 +5,15 @@ import sys
 import tensorflow as tf
 import numpy as np
 from tensorflow.python.ops import rnn_cell_impl
-
+from tensorflow.contrib.rnn.python.ops.core_rnn_cell import _linear
+from tensorflow.python import debug as tfdbg
 from utils import createVocabulary
 from utils import loadVocabulary
 from utils import computeF1Score
 from utils import DataProcessor
 
 parser = argparse.ArgumentParser(allow_abbrev=False)
-
+##
 #Network
 parser.add_argument("--num_units", type=int, default=64, help="Network size.", dest='layer_size')
 parser.add_argument("--model_type", type=str, default='full', help="""full(default) | intent_only
@@ -28,7 +29,7 @@ parser.add_argument("--patience", type=int, default=5, help="Patience to wait be
 #Model and Vocab
 parser.add_argument("--dataset", type=str, default=None, help="""Type 'atis' or 'snips' to use dataset provided by us or enter what ever you named your own dataset.
                 Note, if you don't want to use this part, enter --dataset=''. It can not be None""")
-parser.add_argument("--model_path", type=str, default='./model', help="Path to save model.")
+parser.add_argument("--model_path", type=str, default='/content/drive/MyDrive/Data/SlotGate/interplay/snips', help="Path to save model.")
 parser.add_argument("--vocab_path", type=str, default='./vocab', help="Path to vocabulary files.")
 
 #Data
@@ -38,6 +39,12 @@ parser.add_argument("--valid_data_path", type=str, default='valid', help="Path t
 parser.add_argument("--input_file", type=str, default='seq.in', help="Input file name.")
 parser.add_argument("--slot_file", type=str, default='seq.out', help="Slot file name.")
 parser.add_argument("--intent_file", type=str, default='label', help="Intent file name.")
+parser.add_argument("--ckpt", default='/content/drive/MyDrive/Data/SlotGate/interplay/snips', help='The path to the model file')
+
+
+parser.add_argument("--interplay", action='store_true', help='Use the interplay between slot filling and intent detection or not.')
+parser.add_argument("--remove_intent_attn", action='store_true', help='Remove the intent attention.')
+parser.add_argument("--remove_gate", action='store_true', help='Remove the gate.')
 
 arg=parser.parse_args()
 
@@ -78,7 +85,7 @@ in_vocab = loadVocabulary(os.path.join(arg.vocab_path, 'in_vocab'))
 slot_vocab = loadVocabulary(os.path.join(arg.vocab_path, 'slot_vocab'))
 intent_vocab = loadVocabulary(os.path.join(arg.vocab_path, 'intent_vocab'))
 
-def createModel(input_data, input_size, sequence_length, slot_size, intent_size, layer_size = 128, isTraining = True):
+def createModel(input_data, input_size, sequence_length, slot_size, intent_size, layer_size = 128, interplay = False, remove_intent_attn = False, remove_gate = False, isTraining = True):
     cell_fw = tf.contrib.rnn.BasicLSTMCell(layer_size)
     cell_bw = tf.contrib.rnn.BasicLSTMCell(layer_size)
 
@@ -90,85 +97,121 @@ def createModel(input_data, input_size, sequence_length, slot_size, intent_size,
 
     embedding = tf.get_variable('embedding', [input_size, layer_size])
     inputs = tf.nn.embedding_lookup(embedding, input_data)
-
+    # State_outputs: ontains forward and backwards sequence. Shape: 2 x batchsize x len x dim [2 12 23 64]
+    # Final_state: The final states of both forward and backwards LSTM. Shape: 2 x 2(cell and hidden) x batchsize x dim [2 2 12 64]
     state_outputs, final_state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, inputs, sequence_length=sequence_length, dtype=tf.float32)
     
+    # concatenate in the last dim, so final will become batch_size x dim(256) [12 256]
     final_state = tf.concat([final_state[0][0], final_state[0][1], final_state[1][0], final_state[1][1]], 1)
-    state_outputs = tf.concat([state_outputs[0], state_outputs[1]], 2)
+    state_outputs = tf.concat([state_outputs[0], state_outputs[1]], 2) # Shape: batchsize x len x dim(128) [12 23 128]
     state_shape = state_outputs.get_shape()
-
+    
+    
     with tf.variable_scope('attention'):
-        slot_inputs = state_outputs
+        bs = state_shape[0].value
+        
+        slot_inputs = state_outputs #[12 23 128]
         if remove_slot_attn == False:
             with tf.variable_scope('slot_attn'):
-                attn_size = state_shape[2].value
-                origin_shape = tf.shape(state_outputs)
-                hidden = tf.expand_dims(state_outputs, 1)
-                hidden_conv = tf.expand_dims(state_outputs, 2)
+                attn_size = state_shape[2].value #128
+                origin_shape = tf.shape(state_outputs) #[12 23 128]
+                hidden = tf.expand_dims(state_outputs, 1) # Shape: batchsize x 1 x len x dim(128)
+                hidden_conv = tf.expand_dims(state_outputs, 2) # Shape: batchsize x len x 1 x dim(128)
                 # hidden shape = [batch, sentence length, 1, hidden size]
-                k = tf.get_variable("AttnW", [1, 1, attn_size, attn_size])
+                k = tf.get_variable("AttnW", [1, 1, attn_size, attn_size]) # 1 x 1 x 128 x 128
+                # Convolutional: Attention weights
                 hidden_features = tf.nn.conv2d(hidden_conv, k, [1, 1, 1, 1], "SAME")
                 hidden_features = tf.reshape(hidden_features, origin_shape)
                 hidden_features = tf.expand_dims(hidden_features, 1)
-                v = tf.get_variable("AttnV", [attn_size])
+                # Derive the hidden states weighted from attention (Content vector)
+                v = tf.get_variable("AttnV", [attn_size])# 128
 
                 slot_inputs_shape = tf.shape(slot_inputs)
-                slot_inputs = tf.reshape(slot_inputs, [-1, attn_size])
-                y = rnn_cell_impl._linear(slot_inputs, attn_size, True)
+                slot_inputs = tf.reshape(slot_inputs, [-1, attn_size])# Shape: (batchsize x len) x dim(128) [276 128]
+                
+                y = _linear(slot_inputs, attn_size, True)# The y here is the origin hidden states.
                 y = tf.reshape(y, slot_inputs_shape)
                 y = tf.expand_dims(y, 2)
-                s = tf.reduce_sum(v * tf.tanh(hidden_features + y), [3])
+                s = tf.reduce_sum(v * tf.tanh(hidden_features + y), [3])# Sum the origin hidden states and weighted hidden states up
                 a = tf.nn.softmax(s)
                 # a shape = [batch, input size, sentence length, 1]
                 a = tf.expand_dims(a, -1)
-                slot_d = tf.reduce_sum(a * hidden, [2])
+                slot_d = tf.reduce_sum(a * hidden, [2]) #[12 23 128]
+                
+                
         else:
             attn_size = state_shape[2].value
             slot_inputs = tf.reshape(slot_inputs, [-1, attn_size])
 
-        intent_input = final_state
+        intent_input = final_state # [12 256]]
         with tf.variable_scope('intent_attn'):
-            attn_size = state_shape[2].value
-            hidden = tf.expand_dims(state_outputs, 2)
-            k = tf.get_variable("AttnW", [1, 1, attn_size, attn_size])
-            hidden_features = tf.nn.conv2d(hidden, k, [1, 1, 1, 1], "SAME")
-            v = tf.get_variable("AttnV", [attn_size])
 
-            y = rnn_cell_impl._linear(intent_input, attn_size, True)
-            y = tf.reshape(y, [-1, 1, 1, attn_size])
-            s = tf.reduce_sum(v*tf.tanh(hidden_features + y), [2,3])
-            a = tf.nn.softmax(s)
-            a = tf.expand_dims(a, -1)
-            a = tf.expand_dims(a, -1)
-            d = tf.reduce_sum(a * hidden, [1, 2])
+            if remove_intent_attn == True:
+                intent_output = tf.concat([tf.reduce_sum(state_outputs, 1), intent_input], 1)
+            else:           
+                attn_size = state_shape[2].value # dim(128) state_outputs : [12 23 128]
+                hidden = tf.expand_dims(state_outputs, 2) # Shape: batchsize x len x 1 x dim(128)
+                k = tf.get_variable("AttnW", [1, 1, attn_size, attn_size]) # 1 x 1 128 x 128
+                # Attention weighted
+                hidden_features = tf.nn.conv2d(hidden, k, [1, 1, 1, 1], "SAME")
+                v = tf.get_variable("AttnV", [attn_size])
 
-            if add_final_state_to_intent == True:
-                intent_output = tf.concat([d, intent_input], 1)
-            else:
-                intent_output = d
+                y = _linear(intent_input, attn_size, True)
+                y = tf.reshape(y, [-1, 1, 1, attn_size])
+                s = tf.reduce_sum(v*tf.tanh(hidden_features + y), [2,3])
+                a = tf.nn.softmax(s)
+                a = tf.expand_dims(a, -1)
+                a = tf.expand_dims(a, -1)
+                
+                d = tf.reduce_sum(a * hidden, [1, 2]) # a * hidden shape:[ 12  23   1 128]
+                # d: Shape [12 128]
+                sa = tf.shape(d)
+                if add_final_state_to_intent == True:
+                    if interplay == True:
+                        slot_t = tf.reduce_sum(slot_d, 1)
+                        # slot_t = tf.reduce_sum(slot_d, 2)
+                        # slot_t = tf.layers.Flatten()(slot_d)
+                        #slot_t = tf.reshape(slot_d, [d.get_shape()[0].value, -1])
+                        intent_output = tf.concat([slot_t, d, intent_input], 1)           
+                    else:
+                        intent_output = tf.concat([d, intent_input], 1) #[12 384]
+
+                else:
+                    intent_output = d
 
         with tf.variable_scope('slot_gated'):
-            intent_gate = rnn_cell_impl._linear(intent_output, attn_size, True)
+            if remove_gate == True:
+                slot_without_gate = tf.reshape( slot_d, [-1, attn_size])
+                slot_without_gate = tf.concat([slot_without_gate, slot_inputs], 1)
+
+            intent_gate = _linear(intent_output, attn_size, True) 
             intent_gate = tf.reshape(intent_gate, [-1, 1, intent_gate.get_shape()[1].value])
             v1 = tf.get_variable("gateV", [attn_size])
             if remove_slot_attn == False:
                 slot_gate = v1 * tf.tanh(slot_d + intent_gate)
             else:
                 slot_gate = v1 * tf.tanh(state_outputs + intent_gate)
-            slot_gate = tf.reduce_sum(slot_gate, [2])
+            # Slot_gete Before sum: [ 12  23 128]
+            slot_gate = tf.reduce_sum(slot_gate, [2]) # Slot_gate after sum: [12 23]
             slot_gate = tf.expand_dims(slot_gate, -1)
+            
             if remove_slot_attn == False:
-                slot_gate = slot_d * slot_gate
+                slot_gate = slot_d * slot_gate # slot_d : [12 23 128]
             else:
                 slot_gate = state_outputs * slot_gate
-            slot_gate = tf.reshape(slot_gate, [-1, attn_size])
-            slot_output = tf.concat([slot_gate, slot_inputs], 1)
-
+            slot_gate = tf.reshape(slot_gate, [-1, attn_size]) # [276 128]
+            slot_output = tf.concat([slot_gate, slot_inputs], 1) #[276 256] 
+            
     with tf.variable_scope('intent_proj'):
-        intent = rnn_cell_impl._linear(intent_output, intent_size, True)
-
+        intent = _linear(intent_output, intent_size, True) # intent shape: [12 9]
+        
     with tf.variable_scope('slot_proj'):
-        slot = rnn_cell_impl._linear(slot_output, slot_size, True)
+        # Slot :[276 74]
+        if remove_gate == True:
+            slot = _linear(slot_without_gate, slot_size, True)
+        else:
+            slot = _linear(slot_output, slot_size, True) # slot_output: [276 256] 
+        
 
     outputs = [slot, intent]
     return outputs
@@ -182,11 +225,12 @@ slot_weights = tf.placeholder(tf.float32, [None, None], name='slot_weights')
 intent = tf.placeholder(tf.int32, [None], name='intent')
 
 with tf.variable_scope('model'):
-    training_outputs = createModel(input_data, len(in_vocab['vocab']), sequence_length, len(slot_vocab['vocab']), len(intent_vocab['vocab']), layer_size=arg.layer_size)
+    training_outputs = createModel(input_data, len(in_vocab['vocab']), sequence_length, len(slot_vocab['vocab']), len(intent_vocab['vocab']), layer_size=arg.layer_size, interplay = arg.interplay, remove_intent_attn = arg.remove_intent_attn, remove_gate = arg.remove_gate)
 
 slots_shape = tf.shape(slots)
 slots_reshape = tf.reshape(slots, [-1])
-
+# Debug print
+#sa = training_outputs[2]
 slot_outputs = training_outputs[0]
 with tf.variable_scope('slot_loss'):
     crossent = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=slots_reshape, logits=slot_outputs)
@@ -222,13 +266,13 @@ gradient_norm_slot = norm_slot
 gradient_norm_intent = norm_intent
 update_slot = opt.apply_gradients(zip(clipped_gradients_slot, slot_params))
 update_intent = opt.apply_gradients(zip(clipped_gradients_intent, intent_params), global_step=global_step)
-
+# Debug output
 training_outputs = [global_step, slot_loss, update_intent, update_slot, gradient_norm_intent, gradient_norm_slot]
 inputs = [input_data, sequence_length, slots, slot_weights, intent]
 
 # Create Inference Model
 with tf.variable_scope('model', reuse=True):
-    inference_outputs = createModel(input_data, len(in_vocab['vocab']), sequence_length, len(slot_vocab['vocab']), len(intent_vocab['vocab']), layer_size=arg.layer_size, isTraining=False)
+    inference_outputs = createModel(input_data, len(in_vocab['vocab']), sequence_length, len(slot_vocab['vocab']), len(intent_vocab['vocab']), layer_size=arg.layer_size, interplay = arg.interplay, remove_intent_attn = arg.remove_intent_attn, remove_gate = arg.remove_gate, isTraining=False)
 
 inference_slot_output = tf.nn.softmax(inference_outputs[0], name='slot_output')
 inference_intent_output = tf.nn.softmax(inference_outputs[1], name='intent_output')
@@ -242,6 +286,7 @@ saver = tf.train.Saver()
 
 # Start Training
 with tf.Session() as sess:
+
     sess.run(tf.global_variables_initializer())
     logging.info('Training Start')
 
@@ -280,6 +325,7 @@ with tf.Session() as sess:
             epochs += 1
             logging.info('Step: ' + str(step))
             logging.info('Epochs: ' + str(epochs))
+            # logging.info('Shape: '+ str(ret[6]))
             logging.info('Loss: ' + str(loss/num_loss))
             num_loss = 0
             loss = 0.0
